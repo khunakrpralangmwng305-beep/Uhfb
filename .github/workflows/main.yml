@@ -1,0 +1,498 @@
+-- ==========================================
+-- ⚙️ 0. ตรวจสอบการโหลดของเกม
+-- ==========================================
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+-- ==========================================
+-- ⚙️ 1. Services & Variables Setup
+-- ==========================================
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService") 
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- ตารางจัดการสถานะสคริปต์
+local States = { 
+    AutoFly = false, 
+    AutoWins = false,
+    AutoFarmButton14 = false, -- เพิ่มสถานะสำหรับ Button14
+    GodMode = false, 
+    AntiBan = true, 
+    AntiAFK = true, 
+    AutoClick = false, 
+    ESP = false,
+    LockHead = false,
+    AimbotSmooth = 0.2, 
+    WallCheck = true,
+    FlySpeed = 150 
+}
+
+local Connections = {}
+local ESPStorage = {}
+local ActiveTween = nil 
+local IsTweening = false 
+
+-- พิกัด Waypoints
+local waypoints = {
+    CFrame.new(-369.049927, 0.840000391, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-631.349976, 0.840000391, 3.04999995, 1, 0, 0, 0, 1, 0, 0, 0, 1), 
+    CFrame.new(-693.436279, 14.2451191, -32.5, 0.986663103, 0.162775815, 0, -0.162775815, 0.986663103, -0, -0, 0, 1),
+    CFrame.new(-826.549988, 31.0900002, -21.3500004, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-835.700012, 31.0900002, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-881.450012, 31.0900002, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-1384.69995, 31.0900002, 3.04999995, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-1424.34998, 16.5900002, 3.04999924, 1, 0, 0, 0, 1, 0, 0, 0, 1),
+    CFrame.new(-1418.25, 15.4400005, -445.299988, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1448.75, 16.4239025, -497.149994, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1430.44995, 80.0899963, -890.599976, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1430.44995, 80.0899963, -1470.09998, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1427.40002, 80.3399963, -2290.55005, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1430.44995, 80.3399963, -3251.30005, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1756.79993, 168.340012, -4224.25, 0, 0, -1, 0, 1, 0, 1, 0, 0),
+    CFrame.new(-1244.40002, 168.332993, -4782.3999, -1, 0, 0, 0, 1, 0, 0, 0, -1),
+    CFrame.new(-414.799988, 168.332993, -4785.44971, -1, 0, 0, 0, 1, 0, 0, 0, -1),
+    CFrame.new(189.099991, 168.332993, -4782.3999, -1, 0, 0, 0, 1, 0, 0, 0, -1),
+}
+
+-- Helper Functions
+local function CleanConnection(name)
+    if Connections[name] then
+        Connections[name]:Disconnect()
+        Connections[name] = nil
+    end
+end
+
+-- ==========================================
+-- 🛡️ 2. ระบบป้องกันการแบนขั้นสูง (Advanced Bypass)
+-- ==========================================
+local BannedRemotes = { "ban", "kick", "log", "report", "anticheat", "detect", "flag", "crash", "telemetry" }
+
+local function SetupAntiBan()
+    if not hookmetamethod then return end
+    
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        
+        if States.AntiBan and not checkcaller() then
+            if method == "Kick" or method == "kick" then
+                return nil
+            end
+            
+            if method == "FireServer" or method == "InvokeServer" then
+                local remoteName = string.lower(self.Name)
+                for _, keyword in ipairs(BannedRemotes) do
+                    if string.find(remoteName, keyword) then
+                        return nil
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end
+pcall(SetupAntiBan)
+
+-- ==========================================
+-- 🎨 3. UI Setup (Rayfield)
+-- ==========================================
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "⚡ My Hub V2 Pro (Ultimate)",
+    LoadingTitle = "กำลังปรับปรุงประสิทธิภาพสคริปต์...",
+    LoadingSubtitle = "By Peer Assistant",
+    ConfigurationSaving = { Enabled = true, FolderName = "MyHubConfig", FileName = "ProSave" },
+    KeySystem = false
+})
+
+local FarmTab = Window:CreateTab("⚔️ ออโต้ฟาร์ม", 4483362458)
+local CombatTab = Window:CreateTab("🎯 ล็อกเป้า (Aimbot)", 4483362458)
+local VisualTab = Window:CreateTab("👁️ มองทะลุ (ESP)", 4483362458)
+local UtilityTab = Window:CreateTab("🛡️ ผู้เล่น & บายพาส", 4483362458)
+
+-- ==========================================
+-- ⚔️ 4. ระบบออโต้ฟาร์ม (Optimized)
+-- ==========================================
+FarmTab:CreateSection("ระบบฟาร์มหลัก")
+
+FarmTab:CreateToggle({
+    Name = "🖱️ ออโต้คลิก / ตี (Auto Click)",
+    CurrentValue = false,
+    Flag = "AutoClick",
+    Callback = function(Value)
+        States.AutoClick = Value
+        if Value then
+            task.spawn(function()
+                while States.AutoClick do
+                    local char = LocalPlayer.Character
+                    local tool = char and char:FindFirstChildOfClass("Tool")
+                    if tool then 
+                        tool:Activate() 
+                    else
+                        VirtualUser:CaptureController()
+                        VirtualUser:ClickButton1(Vector2.new(0, 0))
+                    end
+                    task.wait(0.1) -- ประหยัด CPU
+                end
+            end)
+        end
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "🏆 ออโต้ฟาร์ม Wins (Button 13)",
+    CurrentValue = false,
+    Flag = "AutoWins",
+    Callback = function(Value)
+        States.AutoWins = Value
+        if Value then
+            CleanConnection("AutoWins")
+            Connections.AutoWins = RunService.Heartbeat:Connect(function()
+                local giveWins = Workspace:FindFirstChild("GiveWins")
+                local targetPart = giveWins and giveWins:FindFirstChild("Button13") and (giveWins.Button13:FindFirstChild("Touch") or giveWins.Button13)
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                
+                if hrp and targetPart then
+                    if typeof(firetouchinterest) == "function" then 
+                        firetouchinterest(hrp, targetPart, 0) 
+                        firetouchinterest(hrp, targetPart, 1) 
+                    else 
+                        hrp.CFrame = targetPart.CFrame 
+                    end
+                end
+            end)
+        else
+            CleanConnection("AutoWins")
+        end
+    end,
+})
+
+FarmTab:CreateToggle({
+    Name = "🌟 ออโต้ฟาร์ม Button 14",
+    CurrentValue = false,
+    Flag = "AutoFarmBtn14",
+    Callback = function(Value)
+        States.AutoFarmButton14 = Value
+        if Value then
+            Rayfield:Notify({
+                Title = "Auto Farm Active",
+                Content = "กำลังวาร์ปไปที่ Button14 อัตโนมัติ",
+                Duration = 5
+            })
+            
+            task.spawn(function()
+                while States.AutoFarmButton14 do
+                    local character = LocalPlayer.Character
+                    if character and character:FindFirstChild("HumanoidRootPart") then
+                        local humanoidRootPart = character.HumanoidRootPart
+                        local giveWins = Workspace:FindFirstChild("GiveWins")
+                        
+                        if giveWins then
+                            local targetButton = giveWins:FindFirstChild("Button14")
+                            
+                            if targetButton then
+                                -- 1. วาร์ปตัวละครไปยังปุ่มเป้าหมาย
+                                humanoidRootPart.CFrame = targetButton.CFrame
+                                
+                                -- 2. สั่งระบบให้ตัวละคร "สัมผัส" ปุ่ม (ฟังก์ชันพิเศษของ Executor)
+                                if typeof(firetouchinterest) == "function" then
+                                    firetouchinterest(humanoidRootPart, targetButton, 0) -- เริ่มสัมผัส
+                                    task.wait(0.05)
+                                    firetouchinterest(humanoidRootPart, targetButton, 1) -- เลิกสัมผัส
+                                end
+                            end
+                        end
+                    end
+                    -- ระยะเวลาดีเลย์ ปรับเพิ่มได้ถ้าเซิร์ฟเวอร์กระตุกหรือโดนเตะ
+                    task.wait(1) 
+                end
+            end)
+        end
+    end,
+})
+
+FarmTab:CreateSection("ระบบบินฟาร์ม (Waypoint Flight)")
+
+FarmTab:CreateSlider({
+    Name = "⚡ ความเร็วการบิน (Fly Speed)",
+    Range = {50, 500},
+    Increment = 10,
+    CurrentValue = 150,
+    Flag = "FlySpeed",
+    Callback = function(Value)
+        States.FlySpeed = Value
+    end,
+})
+
+FarmTab:CreateButton({
+    Name = "🚀 เริ่มการบินฟาร์ม (Smooth Waypoints)",
+    Callback = function()
+        if IsTweening then
+            Rayfield:Notify({Title = "⚠️ คำเตือน", Content = "กำลังบินอยู่! หากต้องการหยุดให้กดปุ่มยกเลิก", Duration = 2})
+            return
+        end
+        
+        IsTweening = true
+        task.spawn(function()
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local hrp = character:WaitForChild("HumanoidRootPart", 5)
+            
+            if not hrp then IsTweening = false return end
+            
+            for i, targetCFrame in ipairs(waypoints) do
+                if not IsTweening then break end -- รองรับการยกเลิก
+                
+                local distance = (hrp.Position - targetCFrame.Position).Magnitude
+                local timeToTravel = math.max(distance / States.FlySpeed, 0.1)
+                local tInfo = TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear)
+                
+                ActiveTween = TweenService:Create(hrp, tInfo, {CFrame = targetCFrame})
+                ActiveTween:Play()
+                ActiveTween.Completed:Wait()
+            end
+            
+            IsTweening = false
+            Rayfield:Notify({Title = "✅ สำเร็จ", Content = "บินครบทุกจุดเรียบร้อยแล้ว!", Duration = 3})
+        end)
+    end,
+})
+
+FarmTab:CreateButton({
+    Name = "🛑 หยุดการบินทันที",
+    Callback = function()
+        IsTweening = false
+        if ActiveTween then 
+            ActiveTween:Cancel() 
+            ActiveTween = nil
+        end
+        Rayfield:Notify({Title = "🛑 ยกเลิก", Content = "หยุดการบินฟาร์มเรียบร้อยแล้ว", Duration = 2})
+    end,
+})
+
+-- ==========================================
+-- 🎯 5. ระบบล็อกเป้าสมูท (Aimbot Pro)
+-- ==========================================
+CombatTab:CreateSection("ตั้งค่าระบบช่วยยิง")
+
+local function IsVisible(targetPart)
+    if not States.WallCheck then return true end
+    local camera = Workspace.CurrentCamera
+    local ray = Ray.new(camera.CFrame.Position, (targetPart.Position - camera.CFrame.Position).Unit * 500)
+    local part = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, targetPart.Parent})
+    return part == nil or part:IsDescendantOf(targetPart.Parent)
+end
+
+local function GetClosestHead()
+    local camera = Workspace.CurrentCamera
+    local closestHead = nil
+    local shortestDistance = math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            
+            if head and humanoid and humanoid.Health > 0 and IsVisible(head) then
+                local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestHead = head
+                    end
+                end
+            end
+        end
+    end
+    return closestHead
+end
+
+CombatTab:CreateToggle({
+    Name = "🎯 เปิดใช้งาน Camera Lock Head",
+    CurrentValue = false,
+    Flag = "LockHead",
+    Callback = function(Value)
+        States.LockHead = Value
+        if Value then
+            CleanConnection("Aimbot")
+            Connections.Aimbot = RunService.RenderStepped:Connect(function()
+                if States.LockHead then
+                    local targetHead = GetClosestHead()
+                    if targetHead then
+                        local camera = Workspace.CurrentCamera
+                        -- Smooth Lerp กล้องไม่สะบัด
+                        local targetCFrame = CFrame.new(camera.CFrame.Position, targetHead.Position)
+                        camera.CFrame = camera.CFrame:Lerp(targetCFrame, States.AimbotSmooth)
+                    end
+                end
+            end)
+        else
+            CleanConnection("Aimbot")
+        end
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "🧱 เช็กกำบัง (Wall Check)",
+    CurrentValue = true,
+    Flag = "WallCheck",
+    Callback = function(Value) States.WallCheck = Value end,
+})
+
+-- ==========================================
+-- 👁️ 6. ระบบมองทะลุ (Zero-Lag ESP)
+-- ==========================================
+VisualTab:CreateSection("ESP Player")
+
+local function RemoveESP(player)
+    if ESPStorage[player] then
+        for _, obj in pairs(ESPStorage[player]) do
+            if obj then obj:Destroy() end
+        end
+        ESPStorage[player] = nil
+    end
+end
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    RemoveESP(player)
+    
+    local function Apply(character)
+        if not character then return end
+        local head = character:WaitForChild("Head", 5)
+        if not head then return end
+        
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "ProESP_HL"
+        highlight.FillColor = Color3.fromRGB(255, 50, 50)
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.Parent = character
+
+        local bgui = Instance.new("BillboardGui")
+        bgui.Name = "ProESP_Txt"
+        bgui.AlwaysOnTop = true
+        bgui.Size = UDim2.new(0, 200, 0, 50)
+        bgui.StudsOffset = Vector3.new(0, 3, 0)
+        bgui.Adornee = head
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextStrokeTransparency = 0
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 13
+        label.Parent = bgui
+        bgui.Parent = character
+
+        ESPStorage[player] = {highlight, bgui}
+    end
+
+    if player.Character then Apply(player.Character) end
+    player.CharacterAdded:Connect(Apply)
+end
+
+VisualTab:CreateToggle({
+    Name = "🔴 เปิดมองทะลุผู้เล่น + บอกระยะทาง",
+    CurrentValue = false,
+    Flag = "PlayerESP",
+    Callback = function(Value)
+        States.ESP = Value
+        if Value then
+            for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+            CleanConnection("ESP_Add")
+            Connections.ESP_Add = Players.PlayerAdded:Connect(CreateESP)
+            Connections.ESP_Remove = Players.PlayerRemoving:Connect(RemoveESP)
+            
+            CleanConnection("ESP_Update")
+            Connections.ESP_Update = RunService.RenderStepped:Connect(function()
+                local myChar = LocalPlayer.Character
+                local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                if not myHrp then return end
+
+                for player, objs in pairs(ESPStorage) do
+                    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local hum = player.Character:FindFirstChildOfClass("Humanoid")
+                        local label = objs[2] and objs[2]:FindFirstChildOfClass("TextLabel")
+                        
+                        if label and hum then
+                            local dist = math.floor((myHrp.Position - player.Character.HumanoidRootPart.Position).Magnitude)
+                            local hpPercent = math.floor((hum.Health / hum.MaxHealth) * 100)
+                            label.Text = string.format("%s\n[%d M] | HP: %d%%", player.DisplayName, dist, hpPercent)
+                        end
+                    end
+                end
+            end)
+        else
+            CleanConnection("ESP_Add")
+            CleanConnection("ESP_Remove")
+            CleanConnection("ESP_Update")
+            for p, _ in pairs(ESPStorage) do RemoveESP(p) end
+        end
+    end,
+})
+
+-- ==========================================
+-- 🛡️ 7. ระบบ Utility & God Mode
+-- ==========================================
+UtilityTab:CreateSection("สถานะตัวละคร & บายพาส")
+
+UtilityTab:CreateToggle({
+    Name = "🛡️ อมตะ (God Mode กันกับดัก/Lava)",
+    CurrentValue = false,
+    Flag = "GodMode",
+    Callback = function(Value)
+        States.GodMode = Value
+        local function ProcessPart(part)
+            if part:IsA("BasePart") then
+                local name = part.Name:lower()
+                if (name:find("kill") or name:find("lava") or name:find("damage")) then
+                    part.CanTouch = not States.GodMode
+                end
+            end
+        end
+
+        if Value then
+            task.spawn(function()
+                for _, part in ipairs(Workspace:GetDescendants()) do
+                    ProcessPart(part)
+                end
+            end)
+            CleanConnection("GodMode")
+            Connections.GodMode = Workspace.DescendantAdded:Connect(ProcessPart)
+        else
+            CleanConnection("GodMode")
+        end
+    end,
+})
+
+UtilityTab:CreateToggle({
+    Name = "⏳ Anti-AFK (กันหลุดออกจากเกม)",
+    CurrentValue = true,
+    Flag = "AntiAFK",
+    Callback = function(Value)
+        States.AntiAFK = Value
+        if Value then
+            CleanConnection("AntiAFK")
+            Connections.AntiAFK = LocalPlayer.Idled:Connect(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end)
+        else
+            CleanConnection("AntiAFK")
+        end
+    end,
+})
+
+Rayfield:Notify({
+    Title = "🚀 สคริปต์ทำงานสมบูรณ์",
+    Content = "อัปเกรดระบบเรียบร้อยพร้อมใช้งาน!",
+    Duration = 4
+})
